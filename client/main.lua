@@ -12,7 +12,6 @@ SessionState = {
     lastSessionState = nil
 }
 
-
 --[[Local Variables]]--
 local spawnedEntities = {}
 local currentZone = nil
@@ -22,7 +21,6 @@ local currentIntId = 0
 local targetConfigs = Config.TargetRotations
 local rangeRows = Config.UpperRows
 local lowerRangeRows = Config.LowerRows
-
 
 -- Populating new tables for easier usage
 local headOffsets = {}
@@ -162,7 +160,6 @@ end
 
 local function CreateTarget(propHash, rows)
     local interiorId = GetInteriorFromEntity(PlayerPedId())
-    print(interiorId, rows[interiorId])
     if not rows[interiorId] then return end
     local randRow = math.random(1, #rows[interiorId])
     local targetPos
@@ -175,27 +172,35 @@ local function CreateTarget(propHash, rows)
     local targetRotation = targetConfigs[interiorId][propHash].spawnRotation
     local targetHandle = CreateObject(propHash, targetPos.x, targetPos.y, rows[interiorId][randRow].startPoint and rows[interiorId][randRow].startPoint.z or targetPos.z, true, true, false)
     Entity(targetHandle).state:set('currRow', randRow, true)
-    SetEntityRotation(targetHandle, targetRotation.x, targetRotation.y, targetRotation.z, 2, false)
+    SetEntityRotation(targetHandle, targetRotation.x, targetRotation.y, targetRotation.z, 1, false)
+    Wait(100)
     table.insert(spawnedEntities, targetHandle)
     return targetHandle
 end
 
 local function MoveTargetToCoord(targetHandle, targetPos, lastTime, unitVector, speed)
     local currentPosition = GetEntityCoords(targetHandle)
-    while Entity(targetHandle).state.moving and not Entity(targetHandle).state.closing and #(targetPos - vector2(currentPosition.x, currentPosition.y)) > 0.1 do
-        local currentTime = GetNetworkTime()
-        local deltaTime = (currentTime - lastTime) / 1000.0
-        currentPosition = movePointAlongVector(currentPosition, unitVector, speed, deltaTime)
-        SetEntityCoords(targetHandle, currentPosition.x ,currentPosition.y, currentPosition.z, false, false, false, false)
-        Wait(1)
+    local targetPos = vector2(targetPos.x, targetPos.y)
+    -- while Entity(targetHandle).state.moving and not Entity(targetHandle).state.closing and #(targetPos - vector2(currentPosition.x, currentPosition.y)) > 0.1 do
+    --     local currentTime = GetNetworkTime()
+    --     local deltaTime = (currentTime - lastTime) / 1000.0
+    --     currentPosition = movePointAlongVector(currentPosition, unitVector, speed, deltaTime)
+    --     SetEntityCoords(targetHandle, currentPosition.x ,currentPosition.y, currentPosition.z, false, false, false, false)
+    --     Wait(1)
+    -- end
+    local distanceMultiplier = #(targetPos - currentPosition.xy)
+    for interpolated in math.lerpQuadratic(currentPosition.xy, targetPos, 250 * distanceMultiplier) do
+        if Entity(targetHandle).state.closing or #(targetPos - currentPosition.xy) < 0.1 then break end
+        SetEntityCoords(targetHandle, interpolated.x ,interpolated.y, currentPosition.z, false, false, false, false)
     end
+    Wait(500)
     Entity(targetHandle).state:set('targetSet', nil, true)
-    Wait(10)
+    Wait(500)
 end
 
 local function MoveTarget(targetHandle, rows)
     while Entity(targetHandle).state.opening do
-        Wait(10)
+        Wait(100)
     end
     local interiorId = GetInteriorFromEntity(PlayerPedId())
     if not rows[interiorId] then return end
@@ -212,6 +217,10 @@ local function MoveTarget(targetHandle, rows)
         local endPoint = rows[interiorId][currRow].endPoint
         local targetPos = randomPointBetween(startPoint, endPoint)
         local currentPosition = GetEntityCoords(targetHandle)
+        while #(targetPos - currentPosition.xy) < 2.0 do
+            targetPos = randomPointBetween(startPoint, endPoint)
+            Wait(0)
+        end
         local unitVector = calculateUnitVector(vector2(currentPosition.x, currentPosition.y), targetPos)
         local lastTime = GetNetworkTime()
         Entity(targetHandle).state:set('moving', true, true)
@@ -220,9 +229,9 @@ local function MoveTarget(targetHandle, rows)
         Entity(targetHandle).state:set('unitVector', unitVector, true)
         Entity(targetHandle).state:set('speed', speed, true)
         Entity(targetHandle).state:set('targetSet', true, true)
-        Wait(10)
+        Wait(100)
         while Entity(targetHandle).state.targetSet do
-            Wait(1)
+            Wait(100)
         end
         Wait(50)
     end
@@ -239,25 +248,28 @@ local function DropTargetFast(targetHandle, nextState)
     CreateThread(function()
 
         -- Pitch is basically up and down angle, it is either -90.0 or 90.0 degrees here.
-        local startPitch = GetEntityRotation(targetHandle, 2).x
-
+        -- local startPitch = GetEntityRotation(targetHandle, 2).x
+        local startRotation = GetEntityRotation(targetHandle, 1)
         -- Target Pitch is 0.0 which makes the targets "stand" but I'm retrieving from the config anyway
         local targetRotation = targetConfigs[interiorId][targetModel].openRotation
 
         -- This is a hack to basically calculate if I should add or remove the deltaAngle which is 2.0 degrees.
-        local isTargetRotationNegative = startPitch < 0.0 and -1 or 1
+        -- local isTargetRotationNegative = startPitch < 0.0 and -1 or 1
 
-        -- This one just rotates it until it is opened or closed.
-        -- You can even change its speed, reducing while closing increasing while opening
-        while GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative > targetRotation.x do
-            if GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative < targetRotation.x or not Entity(targetHandle).state.opening then
-                SetEntityRotation(targetHandle, targetRotation.x, targetRotation.y, targetRotation.z, 2, false)
-                break
-            end
-            startPitch -= 2.0 * isTargetRotationNegative
+        -- -- This one just rotates it until it is opened or closed.
+        -- -- You can even change its speed, reducing while closing increasing while opening
+        -- while GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative > targetRotation.x do
+        --     if GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative < targetRotation.x or not Entity(targetHandle).state.opening then
+        --         SetEntityRotation(targetHandle, targetRotation.x, targetRotation.y, targetRotation.z, 2, false)
+        --         break
+        --     end
+        --     startPitch -= 2.0 * isTargetRotationNegative
 
-            SetEntityRotation(targetHandle, startPitch, 0, targetRotation.z, 2, false)
-            Wait(10)
+        --     SetEntityRotation(targetHandle, startPitch, 0, targetRotation.z, 2, false)
+        --     Wait(10)
+        -- end
+        for interpolated in math.lerp(startRotation, targetRotation, 500) do
+            SetEntityRotation(targetHandle, interpolated.x, interpolated.y, interpolated.z, 2, false)
         end
         if nextState then
             Wait(1)
@@ -273,18 +285,22 @@ local function PushTargetFast(targetHandle, nextState)
         return
     end
     CreateThread(function()
-        local startPitch = GetEntityRotation(targetHandle, 2).x
+        -- local startPitch = GetEntityRotation(targetHandle, 2).x
+        local startRotation = GetEntityRotation(targetHandle, 1)
         local targetRotation = targetConfigs[interiorId][targetModel].closeRotation
-        local isTargetRotationNegative = targetRotation.x < 0.0 and -1 or 1
-        while GetEntityRotation(targetHandle, 2).x < targetRotation.x * isTargetRotationNegative do
-            print(GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative > targetRotation.x * isTargetRotationNegative, GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative, targetRotation.x * isTargetRotationNegative)
-            if targetRotation.x * isTargetRotationNegative - GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative < 1.0  or not Entity(targetHandle).state.closing then
-                SetEntityRotation(targetHandle, targetRotation.x, targetRotation.y, targetRotation.z, 2, false)
-                break
-            end
-            startPitch += 5.0 * isTargetRotationNegative
-            SetEntityRotation(targetHandle, startPitch, 0, targetRotation.z, 2, false)
-            Wait(10)
+        -- local isTargetRotationNegative = targetRotation.x < 0.0 and -1 or 1
+        -- while GetEntityRotation(targetHandle, 2).x < targetRotation.x * isTargetRotationNegative do
+        --     print(GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative > targetRotation.x * isTargetRotationNegative, GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative, targetRotation.x * isTargetRotationNegative)
+        --     if targetRotation.x * isTargetRotationNegative - GetEntityRotation(targetHandle, 2).x * isTargetRotationNegative < 1.0  or not Entity(targetHandle).state.closing then
+        --         SetEntityRotation(targetHandle, targetRotation.x, targetRotation.y, targetRotation.z, 2, false)
+        --         break
+        --     end
+        --     startPitch += 5.0 * isTargetRotationNegative
+        --     SetEntityRotation(targetHandle, startPitch, 0, targetRotation.z, 2, false)
+        --     Wait(10)
+        -- end
+        for interpolated in math.lerp(startRotation, targetRotation, 300) do
+            SetEntityRotation(targetHandle, interpolated.x, interpolated.y, interpolated.z, 2, false)
         end
         if nextState then
             Wait(1)
@@ -379,7 +395,6 @@ AddEventHandler('gameEventTriggered', function(name, args)
 
     local hit, endCoords = RayCastPlayerWeapon(currWeaponHandle)
     local offset = GetOffsetFromEntityGivenWorldCoords(args[1], endCoords.x, endCoords.y, endCoords.z)
-    print("offset:", offset)
 
     if isPointInBounds(offset, headOffsets[currEntityModel]) then
         TriggerServerEvent('pc-shootingranges:server:setStoreState:addPoint', currentIntId, Config.HeadShotPoint)

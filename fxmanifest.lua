@@ -4,6 +4,7 @@ author 'zeixna'
 games { 'gta5' }
 
 client_scripts {
+    'client/interpolations.lua',
     'client/main.lua'
 }
 

@@ -233,7 +233,7 @@ Config.TrainingModes = {
                     canMove = false
                 },
             },
-            movingChance = 20.0,
+            movingChance = 100.0,
             targetOptions = {
                 distance = 1.5,
                 label = "Point Rush",
